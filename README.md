@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/actions/workflow/status/jeremy-morren/AzureArtifacts.UniversalPackages.Unofficial/release.yml?label=Release)](https://github.com/jeremy-morren/AzureArtifacts.UniversalPackages.Unofficial/actions/workflows/release.yml)
 [![NuGet](https://img.shields.io/nuget/v/AzureArtifacts.UniversalPackages.Unofficial?label=NuGet)](https://www.nuget.org/packages/AzureArtifacts.UniversalPackages.Unofficial)
 
-This is a library library that lists and downloads [Azure Artifacts Universal Packages](https://learn.microsoft.com/azure/devops/artifacts/quickstarts/universal-packages)
+This is a library that lists and downloads [Azure Artifacts Universal Packages](https://learn.microsoft.com/azure/devops/artifacts/quickstarts/universal-packages)
 over plain HTTP.
 
 **Unofficial**: not affiliated with, endorsed or supported by Microsoft. It relies on the service's HTTP protocol, which
