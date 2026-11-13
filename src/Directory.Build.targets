@@ -1,0 +1,10 @@
+<Project>
+    <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+        <Compile Include="$(MSBuildThisFileDirectory)CompilerAttributes.cs"/>
+    </ItemGroup>
+    
+    <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+        <!-- netstandard2.0 does not support Debug.Assert etc. Nullable warnings are provided by net6.0 and net8.0 builds -->
+        <NoWarn>$(NoWarn);nullable</NoWarn>
+    </PropertyGroup>
+</Project>

@@ -1,0 +1,65 @@
+name: Release
+
+# draft.yml drafts a release for every green push to main; publishing that draft is the release
+# decision, and this pushes the packages it carries to NuGet.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Push to NuGet
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # NuGet trusted publishing exchanges the workflow's OIDC token for a short-lived API key.
+      id-token: write
+    environment: NuGet
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      # The script that reads the packages, from the released commit
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          sparse-checkout: .github/scripts
+
+      # dotnet nuget push also pushes the symbol package (.snupkg) next to each package
+      - name: Download the packages from the release
+        run: gh release download "$TAG" --pattern '*.nupkg' --pattern '*.snupkg' --dir package
+
+      # The draft carried the packages built from that commit; a tag that disagrees with them means
+      # the release was assembled by hand, and pushing a wrong version to NuGet cannot be undone.
+      - name: Check the packages match the tag
+        id: packages
+        shell: pwsh
+        run: ./.github/scripts/GetPackageVersion.ps1 -Directory package -Tag $env:TAG
+
+      # Install the dotnet SDK for the NuGet CLI
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # Get a short-lived NuGet API key
+      - name: NuGet login (Trusted Publishing)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push to NuGet
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          VERSION: ${{ steps.packages.outputs.version }}
+        run: |
+          set -euo pipefail
+          dotnet nuget push "package/AzureArtifacts.UniversalPackages.Unofficial.${VERSION}.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
+            --skip-duplicate

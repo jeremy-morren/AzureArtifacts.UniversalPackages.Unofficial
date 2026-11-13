@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Code coverage (dotnet test -collect "Code Coverage"): the library only, not the tests, xunit or the test platform,
+     and not source-generated code (the JSON and logging generators') -->
+<RunSettings>
+    <DataCollectionRunSettings>
+        <DataCollectors>
+            <DataCollector friendlyName="Code Coverage">
+                <Configuration>
+                    <Format>cobertura</Format>
+                    <CodeCoverage>
+                        <!-- Include AzureArtifacts.UniversalPackages* assemblies -->
+                        <ModulePaths>
+                            <Include>
+                                <ModulePath>.*[\\/]AzureArtifacts\.UniversalPackages[^\\/]*\.(dll|exe)$</ModulePath>
+                            </Include>
+                            <!-- Exclude the test assemblies -->
+                            <Exclude>
+                                <ModulePath>.*\.Tests\.(dll|exe)$</ModulePath>
+                            </Exclude>
+                        </ModulePaths>
+                        <Sources>
+                            <!-- Exclude source-generated code -->
+                            <Exclude>
+                                <Source>.*\.g\.cs$</Source>
+                            </Exclude>
+                        </Sources>
+                    </CodeCoverage>
+                </Configuration>
+            </DataCollector>
+        </DataCollectors>
+    </DataCollectionRunSettings>
+</RunSettings>

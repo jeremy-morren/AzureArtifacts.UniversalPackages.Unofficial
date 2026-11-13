@@ -1,0 +1,66 @@
+<Project>
+    <PropertyGroup>
+        <LangVersion>latest</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+
+        <CheckEolTargetFramework>false</CheckEolTargetFramework>
+
+        <UseArtifactsOutput>true</UseArtifactsOutput>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+        <IncludeSymbols>true</IncludeSymbols>
+        <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+        <!-- Code coverage covers the library only. Not conditioned on IsTestProject, which projects set after this file;
+             only VSTest (dotnet test) reads it -->
+        <RunSettingsFilePath>$(MSBuildThisFileDirectory)codecoverage.runsettings.xml</RunSettingsFilePath>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <Authors>Jeremy Morren</Authors>
+        <Copyright>Copyright (c) 2026 Jeremy Morren</Copyright>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageTags>azure-devops;azure-artifacts;universal-packages;upack</PackageTags>
+    </PropertyGroup>
+
+    <Import Project="$(MSBuildThisFileDirectory)version.props" />
+
+    <ItemGroup>
+        <None Include="$(MSBuildThisFileDirectory)../README.md" 
+              Pack="true" PackagePath="/" Visible="false" />
+        <None Include="$(MSBuildThisFileDirectory)../THIRD-PARTY-NOTICES.md" 
+              Pack="true" PackagePath="/" Visible="false" />
+    </ItemGroup>
+
+    <!-- Tests run on VSTest (dotnet test), through xunit.runner.visualstudio -->
+    <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+        <PackageReference Include="FluentAssertions" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all"
+                          IncludeAssets="runtime; build; native; contentfiles; analyzers; buildtransitive" />
+        <PackageReference Include="xunit" />
+        
+        <Using Include="Xunit" />
+        <Using Include="FluentAssertions" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <SignAssembly>true</SignAssembly>
+        <AssemblyOriginatorKeyFile>$(MSBuildThisFileDirectory)AzureArtifacts.UniversalPackages.Unofficial.snk</AssemblyOriginatorKeyFile>
+        <PublicKey>002400000480000014010000060200000024000052534131000800000100010069d3301ef6c2ca65100e534e2647aa7c89f9f6edcda62fdf0f37ac2183476b528b78df82aa53b49aa8a72f0fe8ff64cab25cf00ea2ae7047f9dbd7de108ff196ad01e518330b945e0518566e377b5b75f658e1ea5b967bf9b6eaf288e6ab35874093c203410baa0c826903a27b18e401a94e2949563f110a4f1fcb47a871f48fd60eadc0ee84dbdbf018beb3f8dc4c8c630ac39af052284e2f91e8993f994676e8efc2452e991fedc8187c322c7c4e89442740e39091daac91d1ab994f984f856506717001e9e93dd451854811e6fb5a0ca7868da06748db1f3ca7be932eaa79eef615d8ea7907c901c3043da2dea0dafea5eba2a37aef16a4863a2991f947b4</PublicKey>
+        <PublicKeyToken>4db02a8573126cc1</PublicKeyToken>
+    </PropertyGroup>
+</Project>

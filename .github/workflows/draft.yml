@@ -1,0 +1,118 @@
+name: Draft release
+
+# A draft release is prepared for every green push to main, and replaced until someone publishes it.
+# Publishing one triggers release.yml, which pushes the package to NuGet.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: draft-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      # ci.yml asks for them (it writes a check run and a comment on pull requests)
+      checks: write
+      pull-requests: write
+
+  release-draft:
+    name: Release draft
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # The script that reads the packages
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: package
+
+      - name: Read the version from the packages
+        id: version
+        shell: pwsh
+        run: ./.github/scripts/GetPackageVersion.ps1 -Directory package
+
+      - name: Look for an existing release
+        id: existing
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            echo "Release $TAG exists (draft: $draft)"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "draft=$draft" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release $TAG yet"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip a published version
+        if: steps.existing.outputs.exists == 'true' && steps.existing.outputs.draft == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          {
+            echo "### Release draft skipped"
+            echo ""
+            echo "\`$TAG\` is already published. Bump \`VersionPrefix\` in \`version.props\` to draft the next one."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # A draft has no tag until it is published, so --cleanup-tag would fail. The next step deletes any tag.
+      - name: Delete the existing draft
+        if: steps.existing.outputs.draft == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release delete "$TAG" --yes
+
+      # Delete a leftover tag (e.g. pushed by hand, or a deleted release)
+      - name: Delete the tag if it exists
+        if: steps.existing.outputs.draft == 'true' || steps.existing.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" --silent 2>/dev/null; then
+            echo "Deleting tag $TAG"
+            gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          else
+            echo "No tag $TAG"
+          fi
+
+      - name: Create the draft release
+        if: steps.existing.outputs.draft == 'true' || steps.existing.outputs.exists == 'false'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --draft \
+            --title "$TAG" \
+            --generate-notes \
+            --target "${{ github.sha }}" \
+            package/*.nupkg \
+            package/*.snupkg
+          url=$(gh release view "$TAG" --json url --jq .url)
+          {
+            echo "### Release draft ready"
+            echo ""
+            echo "Created release draft [$TAG]($url) from \`${{ github.sha }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"

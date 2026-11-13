@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <!-- netcoreapp3.1 to test netstandard2.0 -->
+        <TargetFrameworks>netcoreapp3.1;net6.0;net8.0;net10.0</TargetFrameworks>
+        <!-- Also test on net472 on Windows -->
+        <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net472;$(TargetFrameworks)</TargetFrameworks>
+        <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
+        <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        
+        <!-- Disable CA1835: Use Memory instead of byte[] Stream overloads -->
+        <NoWarn>$(NoWarn);CA1835</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- net472: no shadow copying, which hides the tests and library from code coverage -->
+        <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\AzureArtifacts.UniversalPackages.Unofficial\AzureArtifacts.UniversalPackages.Unofficial.csproj" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+        <Reference Include="System.Net.Http" />
+        <Using Include="System.Net.Http" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- var ct = Token(); -->
+        <Using Include="AzureArtifacts.UniversalPackages.Unofficial.Tests.TestTimeout" Static="true" />
+    </ItemGroup>
+    
+</Project>

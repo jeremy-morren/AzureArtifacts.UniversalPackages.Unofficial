@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/.github/" />
+  <Folder Name="/.github/workflows/">
+    <File Path="../.github/workflows/ci.yml" />
+    <File Path="../.github/workflows/draft.yml" />
+    <File Path="../.github/workflows/release.yml" />
+  </Folder>
+  <Folder Name="/.github/scripts/">
+    <File Path="../.github/scripts/GetPackageVersion.ps1" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="AzureArtifacts.UniversalPackages.Unofficial.snk" />
+    <File Path="CompilerAttributes.cs" />
+    <File Path="codecoverage.runsettings.xml" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Directory.Packages.props" />
+    <File Path="nuget.config" />
+    <File Path="version.props" />
+    <File Path="../.gitignore" />
+    <File Path="../global.json" />
+    <File Path="../README.md" />
+    <File Path="../THIRD-PARTY-NOTICES.md" />
+  </Folder>
+  <Project Path="AzureArtifacts.UniversalPackages.Unofficial/AzureArtifacts.UniversalPackages.Unofficial.csproj" />
+  <Project Path="AzureArtifacts.UniversalPackages.Unofficial.Tests/AzureArtifacts.UniversalPackages.Unofficial.Tests.csproj" />
+  <Project Path="AzureArtifacts.UniversalPackages.Unofficial.IntegrationTest/AzureArtifacts.UniversalPackages.Unofficial.IntegrationTest.csproj" />
+</Solution>
