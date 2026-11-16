@@ -29,7 +29,7 @@
         <!-- The integration test tool -->
         <PackageVersion Include="System.CommandLine" Version="3.0.0" />
         <PackageVersion Include="Azure.Identity" Version="1.21.0" />
-        <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.15" />
+        <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="11.0.0" />
         
         <!-- Tests -->
         <PackageVersion Include="FluentAssertions" Version="8.11.0" />
