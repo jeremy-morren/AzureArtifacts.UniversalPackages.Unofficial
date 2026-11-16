@@ -13,6 +13,13 @@ internal sealed class FeedDto
 {
     public string Id { get; set; }
     public string Name { get; set; }
+    public FeedProjectDto? Project { get; set; }
+}
+
+internal sealed class FeedProjectDto
+{
+    public string? Id { get; set; }
+    public string? Name { get; set; }
 }
 
 internal sealed class PackageListDto

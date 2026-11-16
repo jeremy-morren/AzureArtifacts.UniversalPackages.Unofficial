@@ -37,7 +37,7 @@ public class UniversalPackageDownloadOptions
     /// <summary>
     /// A callback to select the manifest items to download, or null to download all items.
     /// </summary>
-    public Func<Blob, bool>? DownloadFilter { get; set; }
+    public Func<UniversalPackageBlob, bool>? DownloadFilter { get; set; }
     
     /// <summary>
     /// A session ID that identifies the download's requests to Azure DevOps.

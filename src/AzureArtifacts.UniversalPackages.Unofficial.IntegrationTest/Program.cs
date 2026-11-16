@@ -151,7 +151,10 @@ internal sealed class SizeCheckingDownloader : IPackageDownloader
 
     public List<(string Path, long Size)> Received { get; } = [];
 
-    public async Task DownloadFileAsync(FileBlob blob, Stream source, CancellationToken cancellationToken)
+    public Task<Stream?> ShouldDownloadFileAsync(UniversalPackageFile blob, CancellationToken cancellationToken) =>
+        Task.FromResult<Stream?>(null);
+
+    public async Task DownloadFileAsync(UniversalPackageFile blob, Stream source, CancellationToken cancellationToken)
     {
         var buffer = new byte[BufferSize];
         long size = 0;
@@ -161,6 +164,6 @@ internal sealed class SizeCheckingDownloader : IPackageDownloader
         Received.Add((blob.Path, size));
     }
 
-    public Task HandleEmptyDirectoryAsync(EmptyDirectoryBlob blob, CancellationToken cancellationToken) =>
+    public Task HandleEmptyDirectoryAsync(UniversalPackageEmptyDirectory blob, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }

@@ -16,6 +16,7 @@ internal static partial class LogEvents
         public const int Downloaded = 5;
         public const int DownloadingFile = 6;
         public const int Retrying = 7;
+        public const int UpToDate = 8;
     }
 
     [LoggerMessage(EventIds.Request, LogLevel.Debug, "{Method} {Uri}")]
@@ -35,6 +36,9 @@ internal static partial class LogEvents
 
     [LoggerMessage(EventIds.DownloadingFile, LogLevel.Debug, "Downloading {Path} ({Size} bytes, {ChunkCount} chunks)")]
     public static partial void DownloadingFile(this ILogger logger, string path, long size, int chunkCount);
+
+    [LoggerMessage(EventIds.UpToDate, LogLevel.Debug, "Skipping {Path}: its existing content matches ({Size} bytes, {ChunkCount} chunks)")]
+    public static partial void UpToDate(this ILogger logger, string path, long size, int chunkCount);
 
     [LoggerMessage(EventIds.Retrying, LogLevel.Warning, "{Method} {Uri} failed ({Reason}): retry {Attempt} of {MaxRetries} in {DelayMilliseconds:0.##} ms")]
     public static partial void Retrying(this ILogger logger, 

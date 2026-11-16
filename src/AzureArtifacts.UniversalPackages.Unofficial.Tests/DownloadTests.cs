@@ -29,7 +29,7 @@ public class DownloadTests
     ];
 
     /// <summary>What a download handed to its callback, in order</summary>
-    private sealed record Received(Blob Blob, byte[] Content);
+    private sealed record Received(UniversalPackageBlob Blob, byte[] Content);
 
     [Theory]
     [InlineData(true, true, 1024)]
@@ -55,7 +55,7 @@ public class DownloadTests
         AssertFiles(files, received);
         received.Should().AllSatisfy(r =>
         {
-            var file = r.Blob.Should().BeOfType<FileBlob>().Subject;
+            var file = r.Blob.Should().BeOfType<UniversalPackageFile>().Subject;
             file.Id.Should().Be(version.Files[file.Path].Id);
             file.Size.Should().Be(r.Content.Length);
         });
@@ -249,7 +249,7 @@ public class DownloadTests
         received.Select(r => r.Blob).Should().Equal(manifest.Items);
         foreach (var directory in received.Skip(files.Length))
         {
-            directory.Blob.Should().Be(new EmptyDirectoryBlob(directory.Blob.Path));
+            directory.Blob.Should().Be(new UniversalPackageEmptyDirectory(directory.Blob.Path));
             directory.Content.Should().BeEmpty();
         }
     }
@@ -535,6 +535,102 @@ public class DownloadTests
     }
 
     [Theory]
+    [InlineData(1024)] // nodes
+    [InlineData(1_000_000)] // one chunk per file
+    public async Task Download_ExistingContentThatMatches_IsNotDownloaded(int chunkSize)
+    {
+        var ct = Token();
+        using var fake = new FakeAzureDevOps { ChunkSize = chunkSize };
+        var files = SampleFiles();
+        fake.AddPackage(Feed, Package, Version, files);
+        var offered = new List<string>();
+        var received = new List<Received>();
+        var existing = new List<MemoryStream>();
+
+        await fake.CreateClient().DownloadAsync(
+            Feed, Package, Version,
+            new CallbackDownloader(
+                async (blob, source, token) =>
+                {
+                    using var content = new MemoryStream();
+                    await source.CopyToAsync(content, 81920, token);
+                    received.Add(new Received(blob, content.ToArray()));
+                },
+                existing: blob =>
+                {
+                    offered.Add(blob.Path);
+                    var stream = new MemoryStream(files.Single(f => f.Key == blob.Path).Value);
+                    existing.Add(stream);
+                    return stream;
+                }),
+            cancellationToken: ct);
+
+        offered.Should().Equal(files.Select(f => f.Key));
+        received.Should().BeEmpty();
+        existing.Should().OnlyContain(s => !s.CanRead, "offered streams are disposed");
+        var leafChunks = fake.Requests.Where(r => r.Uri.Host == FakeAzureDevOps.StorageHost).Select(r => r.Uri.AbsolutePath);
+        foreach (var file in files.Where(f => f.Value.Length > 0))
+            leafChunks.Should().NotContain($"/blobs/{FakeBlobs.Hash(file.Value).ToLowerInvariant()}01");
+    }
+
+    [Theory]
+    [InlineData("readme.txt", "Hello, Universal Packagez")] // same size, different content
+    [InlineData("readme.txt", "Hello")] // shorter
+    [InlineData("readme.txt", "Hello, Universal Packages and more")] // longer
+    [InlineData("lib/empty.txt", "not empty")]
+    public async Task Download_ExistingContentThatDiffers_IsDownloaded(string path, string content)
+    {
+        var ct = Token();
+        using var fake = new FakeAzureDevOps();
+        var files = SampleFiles();
+        fake.AddPackage(Feed, Package, Version, files);
+        var received = new List<Received>();
+
+        // The other files are offered unseekable, so that their content is read to its end
+        await fake.CreateClient().DownloadAsync(
+            Feed, Package, Version,
+            new CallbackDownloader(
+                async (blob, source, token) =>
+                {
+                    using var copy = new MemoryStream();
+                    await source.CopyToAsync(copy, 81920, token);
+                    received.Add(new Received(blob, copy.ToArray()));
+                },
+                existing: blob => blob.Path == path
+                    ? new MemoryStream(Encoding.UTF8.GetBytes(content))
+                    : new UnseekableStream(files.Single(f => f.Key == blob.Path).Value)),
+            cancellationToken: ct);
+
+        AssertFiles(files.Where(f => f.Key == path), received);
+    }
+
+    [Fact]
+    public async Task Download_ExistingContentOfADifferentChunk_IsDownloaded()
+    {
+        var ct = Token();
+        using var fake = new FakeAzureDevOps();
+        var files = SampleFiles();
+        fake.AddPackage(Feed, Package, Version, files);
+        var received = new List<Received>();
+        var data = files.Single(f => f.Key == "lib/data.bin").Value.ToArray();
+        data[5000] ^= 0xFF; // Somewhere in the middle: one chunk differs
+
+        await fake.CreateClient().DownloadAsync(
+            Feed, Package, Version,
+            new CallbackDownloader(
+                async (blob, source, token) =>
+                {
+                    using var copy = new MemoryStream();
+                    await source.CopyToAsync(copy, 81920, token);
+                    received.Add(new Received(blob, copy.ToArray()));
+                },
+                existing: blob => blob.Path == "lib/data.bin" ? new UnseekableStream(data) : null),
+            cancellationToken: ct);
+
+        AssertFiles(files, received);
+    }
+
+    [Theory]
     [InlineData("readme.txt")]
     [InlineData("/lib/data.bin")]
     [InlineData("lib\\empty.txt")]
@@ -600,6 +696,37 @@ public class DownloadTests
     }
 
     [Fact]
+    public async Task DownloadToDirectory_Again_DownloadsOnlyChangedFiles()
+    {
+        var ct = Token();
+        using var fake = new FakeAzureDevOps();
+        var files = SampleFiles();
+        fake.AddPackage(Feed, Package, Version, files);
+        var directory = Path.Combine(Path.GetTempPath(), "upack-tests-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            await fake.CreateClient().DownloadToDirectoryAsync(Feed, Package, Version, directory, cancellationToken: ct);
+            var readme = Path.Combine(directory, "readme.txt");
+            File.WriteAllText(readme, "Hello, Universal Packagez"); // same size
+            var stamp = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(Path.Combine(directory, "lib", "data.bin"), stamp);
+            while (fake.Requests.TryDequeue(out _)) { }
+
+            await fake.CreateClient().DownloadToDirectoryAsync(Feed, Package, Version, directory, cancellationToken: ct);
+
+            foreach (var file in files)
+                File.ReadAllBytes(Path.Combine(directory, file.Key)).Should().Equal(file.Value, file.Key);
+            File.GetLastWriteTimeUtc(Path.Combine(directory, "lib", "data.bin")).Should().Be(stamp, "it was not rewritten");
+            fake.Requests.Select(r => r.Uri.AbsolutePath).Should()
+                .Contain($"/blobs/{FakeBlobs.Hash(files[0].Value).ToLowerInvariant()}01", "the changed file is downloaded");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task DownloadToDirectory_Filter()
     {
         var ct = Token();
@@ -642,6 +769,7 @@ public class DownloadTests
                 received.Add(new Received(blob, content.ToArray()));
                 inProgress.TryRemove(blob.Path, out _);
             },
+            null,
             (blob, _) =>
             {
                 inProgress.Should().BeEmpty();
@@ -684,5 +812,12 @@ public class DownloadTests
         var bytes = new byte[length];
         new Random(seed).NextBytes(bytes);
         return bytes;
+    }
+
+    /// <summary>A read-only stream that can't seek, so that its length is only found by reading it</summary>
+    private sealed class UnseekableStream(byte[] data) : MemoryStream(data, writable: false)
+    {
+        public override bool CanSeek => false;
+        public override long Length => throw new NotSupportedException();
     }
 }
