@@ -24,4 +24,15 @@ internal static class ContentHash
         Debug.Assert(hash.Length >= Length);
         return Hex.Encode(hash, 0, Length);
     }
+
+    /// <summary>A hash of content appended a piece at a time (see <see cref="Finish"/>)</summary>
+    public static IncrementalHash CreateIncremental() => IncrementalHash.CreateHash(HashAlgorithmName.SHA512);
+
+    /// <summary>The hash of the content appended (as from <see cref="Compute"/>); resets <paramref name="hash"/></summary>
+    public static string Finish(IncrementalHash hash)
+    {
+        var value = hash.GetHashAndReset();
+        Debug.Assert(value.Length >= Length);
+        return Hex.Encode(value, 0, Length);
+    }
 }

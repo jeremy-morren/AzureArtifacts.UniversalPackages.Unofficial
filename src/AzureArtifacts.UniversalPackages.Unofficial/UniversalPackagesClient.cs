@@ -99,11 +99,7 @@ public sealed class UniversalPackagesClient
         var feeds = await GetJsonAsync(uri, HttpNames.JsonMediaType, ArtifactsJsonContext.Default.FeedListDto,
             "list feeds", sessionId: null, cancellationToken).ConfigureAwait(false);
 
-        return
-        [
-            .. (feeds.Value ?? [])
-            .Select(f => new ArtifactFeed(f.Id, f.Name))
-        ];
+        return (feeds.Value ?? []).Select(ArtifactFeed.FromDto).ToList();
     }
 
     /// <summary>Lists the Universal Packages of a feed</summary>
@@ -133,13 +129,7 @@ public sealed class UniversalPackagesClient
                 $"list the packages of feed {feedName}", sessionId: null, cancellationToken).ConfigureAwait(false);
             var values = page.Value ?? [];
 
-            packages.AddRange(values
-                .Select(p => new UniversalPackage(
-                    p.Id, 
-                    p.Name,
-                    [.. (p.Versions ?? []).Select(v =>
-                            new UniversalPackageVersion(v.Version, v.IsLatest, v.IsListed, v.PublishDate))])
-                ));
+            packages.AddRange(values.Select(UniversalPackage.FromDto));
 
             if (values.Count < PageSize)
                 return packages;
@@ -236,7 +226,7 @@ public sealed class UniversalPackagesClient
 
         var stopwatch = Stopwatch.StartNew();
         _logger?.Downloading(packageName, version, feedName, selected.Count, selected.OfType<FileManifestEntry>().Sum(e => e.Size));
-        await DownloadEntriesAsync(selected, downloader, settings, cancellationToken).ConfigureAwait(false);
+        await DownloadEntriesAsync(selected, downloader, settings, options.CopyBufferSize, cancellationToken).ConfigureAwait(false);
         _logger?.Downloaded(packageName, version, stopwatch.ElapsedMilliseconds);
         return manifest;
     }
@@ -247,12 +237,12 @@ public sealed class UniversalPackagesClient
     /// <param name="feedName">The feed name (or ID)</param>
     /// <param name="packageName">The package name</param>
     /// <param name="version">The version</param>
-    /// <param name="path">The file's path in the package (see <see cref="Blob.Path"/>)</param>
+    /// <param name="path">The file's path in the package (see <see cref="UniversalPackageBlob.Path"/>)</param>
     /// <param name="output">The stream to write the file's content to</param>
     /// <param name="options">Download options, or null for the defaults. A filter must also select the file</param>
     /// <param name="cancellationToken">A token that can be used to cancel the download operation</param>
     /// <exception cref="UniversalPackagesException">The package has no such file</exception>
-    public async Task<FileBlob> DownloadFileAsync(
+    public async Task<UniversalPackageFile> DownloadFileAsync(
         string feedName,
         string packageName,
         string version,
@@ -279,7 +269,7 @@ public sealed class UniversalPackagesClient
                 downloader,
                 new UniversalPackageDownloadOptions(options)
                 {
-                    DownloadFilter = blob => blob is FileBlob && blob.Path == normalized && (filter == null || filter(blob))
+                    DownloadFilter = blob => blob is UniversalPackageFile && blob.Path == normalized && (filter == null || filter(blob))
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -378,7 +368,7 @@ public sealed class UniversalPackagesClient
         {
             case "EmptyDirectory":
                 // The item is an empty directory
-                return new EmptyDirectoryManifestEntry(new EmptyDirectoryBlob(path));
+                return new EmptyDirectoryManifestEntry(new UniversalPackageEmptyDirectory(path));
             
             case null or "File":
                 // The item is a file with content
@@ -388,7 +378,7 @@ public sealed class UniversalPackagesClient
                     throw new UniversalPackagesException($"The manifest of {packageName} {version} has a negative size for {item.Path}");
                 
                 var id = ParseId(content.Id, item.Path);
-                var blob = new FileBlob(path, id.ToString(), content.Size);
+                var blob = new UniversalPackageFile(path, id.ToString(), content.Size);
                 return new FileManifestEntry(blob, id);
             default:
                 throw new UniversalPackagesException(
@@ -402,29 +392,52 @@ public sealed class UniversalPackagesClient
         IReadOnlyList<ManifestEntry> entries, 
         IPackageDownloader downloader,
         DownloadSettings settings, 
+        int bufferSize,
         CancellationToken ct)
     {
-        // The chunks of every entry, in order: entry i has chunks [starts[i], starts[i + 1])
         var withContent = entries.OfType<FileManifestEntry>().Where(e => e.Size > 0).ToList();
         
+        // Nodes are expanded for every file, also those with existing content: their chunks are what it is checked against
         var expanded = await _blobs.GetChunksAsync(
                 [.. withContent.Select(e => new DedupChild(e.Content, e.Size))],
                 settings,
                 ct)
             .ConfigureAwait(false);
 
+        var entryChunks = new IReadOnlyList<DedupChild>[entries.Count];
+        var expandedIndex = 0;
+        for (var i = 0; i < entries.Count; i++)
+            entryChunks[i] = entries[i] is FileManifestEntry { Size: > 0 } ? expanded[expandedIndex++] : [];
+
+        // Leave out files whose existing content matches
+        var kept = new List<int>(entries.Count);
+        for (var i = 0; i < entries.Count; i++)
+        {
+            if (entries[i] is FileManifestEntry f &&
+                await IsUpToDateAsync(downloader, f, entryChunks[i], bufferSize, ct).ConfigureAwait(false))
+            {
+                _logger?.UpToDate(f.File.Path, f.Size, entryChunks[i].Count);
+                continue;
+            }
+            kept.Add(i);
+        }
+        if (kept.Count != entries.Count)
+        {
+            entries = [.. kept.Select(i => entries[i])];
+            entryChunks = [.. kept.Select(i => entryChunks[i])];
+        }
+
+        // The chunks of every entry, in order: entry i has chunks [starts[i], starts[i + 1])
         var chunks = new List<DedupChild>();
         var starts = new int[entries.Count + 1];
-        var expandedIndex = 0;
         for (var i = 0; i < entries.Count; i++)
         {
             starts[i] = chunks.Count;
             if (entries[i] is not FileManifestEntry f || f.Size == 0)
                 continue;
 
-            var entryChunks = expanded[expandedIndex++];
-            _logger?.DownloadingFile(f.File.Path, f.Size, entryChunks.Count);
-            chunks.AddRange(entryChunks);
+            _logger?.DownloadingFile(f.File.Path, f.Size, entryChunks[i].Count);
+            chunks.AddRange(entryChunks[i]);
         }
         starts[entries.Count] = chunks.Count;
 
@@ -505,6 +518,36 @@ public sealed class UniversalPackagesClient
         }
     }
 
+    /// <summary>
+    /// Whether the downloader offers existing content for the file (see
+    /// <see cref="IPackageDownloader.ShouldDownloadFileAsync"/>) that matches its chunks
+    /// </summary>
+    private static async Task<bool> IsUpToDateAsync(
+        IPackageDownloader downloader,
+        FileManifestEntry file,
+        IReadOnlyList<DedupChild> chunks,
+        int bufferSize,
+        CancellationToken ct)
+    {
+#if NET6_0_OR_GREATER
+        await using
+#else
+        using
+#endif
+            var existing = await downloader.ShouldDownloadFileAsync(file.File, ct).ConfigureAwait(false);
+        if (existing == null)
+            return false;
+
+        if (!existing.CanRead)
+            throw new UniversalPackagesException($"The existing content of {file.File.Path} is not readable");
+
+        // Cheap rejection before hashing
+        if (existing.CanSeek && existing.Length - existing.Position != file.Size)
+            return false;
+
+        return await ContentVerifier.MatchesAsync(existing, chunks, bufferSize, ct).ConfigureAwait(false);
+    }
+
     private async Task<T> GetJsonAsync<T>(
         Uri uri, 
         string accept, 
@@ -563,9 +606,13 @@ public sealed class UniversalPackagesClient
         }
 
         /// <summary>The file downloaded, or null when none was selected</summary>
-        public FileBlob? Downloaded { get; private set; }
+        public UniversalPackageFile? Downloaded { get; private set; }
 
-        public async Task DownloadFileAsync(FileBlob blob, Stream source, CancellationToken cancellationToken)
+        // The output is always written
+        public Task<Stream?> ShouldDownloadFileAsync(UniversalPackageFile blob, CancellationToken cancellationToken) =>
+            Task.FromResult<Stream?>(null);
+
+        public async Task DownloadFileAsync(UniversalPackageFile blob, Stream source, CancellationToken cancellationToken)
         {
             Downloaded = blob;
             await source.CopyToAsync(_output, _bufferSize, cancellationToken).ConfigureAwait(false);
@@ -573,10 +620,10 @@ public sealed class UniversalPackagesClient
         }
 
         // Only files are selected
-        public Task HandleEmptyDirectoryAsync(EmptyDirectoryBlob blob, CancellationToken cancellationToken) =>
+        public Task HandleEmptyDirectoryAsync(UniversalPackageEmptyDirectory blob, CancellationToken cancellationToken) =>
             Task.CompletedTask;
     }
-
+    
     /// <summary>Writes files and creates empty directories under a root directory</summary>
     private sealed class DirectoryDownloader : IPackageDownloader
     {
@@ -589,11 +636,25 @@ public sealed class UniversalPackagesClient
         public DirectoryDownloader(string root, int bufferSize)
         {
             _root = root;
-            _rootPrefix = root.EndsWith(Path.DirectorySeparatorChar.ToString()) ? root : root + Path.DirectorySeparatorChar;
+            _rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
             _bufferSize = bufferSize;
         }
 
-        public async Task DownloadFileAsync(FileBlob blob, Stream source, CancellationToken cancellationToken)
+        /// <summary>The existing file, when it has the blob's size (its content is then checked)</summary>
+        public Task<Stream?> ShouldDownloadFileAsync(UniversalPackageFile blob, CancellationToken cancellationToken)
+        {
+            var target = GetTarget(blob);
+            
+            var info = new FileInfo(target);
+            if (!info.Exists || info.Length != blob.Size)
+                return Task.FromResult<Stream?>(null);
+
+            var stream = new FileStream(target,
+                FileMode.Open, FileAccess.Read, FileShare.Read, _bufferSize, useAsync: true);
+            return Task.FromResult<Stream?>(stream);
+        }
+
+        public async Task DownloadFileAsync(UniversalPackageFile blob, Stream source, CancellationToken cancellationToken)
         {
             var target = GetTarget(blob);
             var parent = Path.GetDirectoryName(target);
@@ -611,14 +672,14 @@ public sealed class UniversalPackagesClient
             await file.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        public Task HandleEmptyDirectoryAsync(EmptyDirectoryBlob blob, CancellationToken cancellationToken)
+        public Task HandleEmptyDirectoryAsync(UniversalPackageEmptyDirectory blob, CancellationToken cancellationToken)
         {
             Directory.CreateDirectory(GetTarget(blob));
             return Task.CompletedTask;
         }
 
         /// <summary>The item's full path, checked to be under the root (manifest paths are also checked when read)</summary>
-        private string GetTarget(Blob blob)
+        private string GetTarget(UniversalPackageBlob blob)
         {
             var target = Path.GetFullPath(Path.Combine(_root, blob.Path.Replace(PathSeparator, Path.DirectorySeparatorChar)));
             if (!target.StartsWith(_rootPrefix, StringComparison.OrdinalIgnoreCase))
@@ -627,15 +688,15 @@ public sealed class UniversalPackagesClient
         }
     }
 
-    private record ManifestEntry(Blob Blob);
+    private record ManifestEntry(UniversalPackageBlob Blob);
 
     /// <summary>
     /// An empty directory manifest item and the dedup blob of its content (null for an empty directory, which has no content)
     /// </summary>
-    private sealed record EmptyDirectoryManifestEntry(EmptyDirectoryBlob Directory) : ManifestEntry(Directory);
+    private sealed record EmptyDirectoryManifestEntry(UniversalPackageEmptyDirectory Directory) : ManifestEntry(Directory);
 
     /// <summary>A file manifest item and the dedup blob of its content</summary>
-    private sealed record FileManifestEntry(FileBlob File, DedupIdentifier Content) : ManifestEntry(File)
+    private sealed record FileManifestEntry(UniversalPackageFile File, DedupIdentifier Content) : ManifestEntry(File)
     {
         public long Size => File.Size;
     }

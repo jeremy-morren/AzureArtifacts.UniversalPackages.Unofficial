@@ -21,6 +21,7 @@ public class ListingTests
 
         feeds.Select(f => f.Name).Should().Equal("first", "second");
         feeds.Select(f => f.Id).Should().Equal(fake.Feeds.Select(f => f.Id));
+        feeds.Should().OnlyContain(f => f.ProjectName == project);
 
         var request = fake.Requests.Should().ContainSingle().Which;
         var expected = project == null
@@ -55,7 +56,7 @@ public class ListingTests
 
         var latest = (await client.ListPackagesAsync("feed", cancellationToken: ct)).Should().ContainSingle().Which;
         latest.Versions.Should().ContainSingle().Which.Should().Be(
-            new UniversalPackageVersion("1.1.0", IsLatest: true, IsListed: true,
+            new UniversalPackageVersion("1.1.0", isLatest: true, isListed: true,
                 new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero)));
 
         var all = (await client.ListPackagesAsync("feed", includeAllVersions: true, cancellationToken: ct))
@@ -139,10 +140,10 @@ public class ListingTests
         manifest.PackageName.Should().Be("tool");
         manifest.Version.Should().Be("1.0.0");
         manifest.Items.Should().Equal(
-            new FileBlob("bin/tool.dll", version.Files["bin/tool.dll"].Id, 5000),
-            new FileBlob("readme.md", version.Files["readme.md"].Id, 2),
-            new FileBlob("empty", version.Files["empty"].Id, 0),
-            new EmptyDirectoryBlob("logs"));
+            new UniversalPackageFile("bin/tool.dll", version.Files["bin/tool.dll"].Id, 5000),
+            new UniversalPackageFile("readme.md", version.Files["readme.md"].Id, 2),
+            new UniversalPackageFile("empty", version.Files["empty"].Id, 0),
+            new UniversalPackageEmptyDirectory("logs"));
         manifest.TotalSize.Should().Be(5002);
     }
 

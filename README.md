@@ -29,13 +29,13 @@ var location = new AzureArtifactsLocation("contoso");
 var client = new UniversalPackagesClient(httpClient, location, AzureArtifactsCredentials.BearerToken(token));
 
 // List
-var feeds = await client.ListFeedsAsync();
+var feeds = await client.ListFeedsAsync(); // Id, Name, Scope ("Organization" or "Project") and Project
 var packages = await client.ListPackagesAsync("my-feed");
 var versions = await client.ListVersionsAsync("my-feed", "my-package");
 var manifest = await client.GetManifestAsync("my-feed", "my-package", "1.2.3");
 
 // Download into a directory, or one file to a stream
-await client.DownloadToDirectoryAsync("my-feed", "my-package", "1.2.3", "packages/my-package");
+await client.DownloadToDirectoryAsync("my-feed", "my-package", "1.2.3", "packages/my-package"); // incremental: unchanged files are skipped
 await client.DownloadFileAsync("my-feed", "my-package", "1.2.3", "lib/tool.dll", stream);
 
 // Or: handle each manifest item manually
@@ -47,6 +47,9 @@ class PackageDownloader : IPackageDownloader
 {
     public Task DownloadFileAsync(FileBlob blob, Stream source, CancellationToken ct) => 
         Task.CompletedTask; // Handle a file
+
+    public Task<Stream?> ShouldDownloadFileAsync(FileBlob blob, CancellationToken ct) =>
+        Task.FromResult<Stream?>(null); // Return existing content: skipped when it matches blob
 
     public Task HandleEmptyDirectoryAsync(EmptyDirectoryBlob blob, CancellationToken ct) => 
         Task.CompletedTask; // Handle an empty directory

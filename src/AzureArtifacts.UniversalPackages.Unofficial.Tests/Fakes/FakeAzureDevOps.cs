@@ -208,7 +208,17 @@ internal sealed class FakeAzureDevOps : HttpMessageHandler
         {
             case "feeds.dev.azure.com" when query.TryGetValue("api-version", out var v) && v == "7.1":
                 if (Matches(path, "_apis", "packaging", "feeds"))
-                    return Json(new { count = Feeds.Count, value = Feeds.Select(f => new { id = f.Id, name = f.Name }) });
+                    // The feeds of a project-scoped fake belong to its project
+                    return Json(new
+                    {
+                        count = Feeds.Count,
+                        value = Feeds.Select(f => new
+                        {
+                            id = f.Id,
+                            name = f.Name,
+                            project = Project == null ? null : new { id = "00000000-0000-0000-0000-000000000001", name = Project }
+                        })
+                    });
                 if (path.Count == 5 && Matches(path.Take(3).ToList(), "_apis", "packaging", "feeds") && path[4] == "packages")
                     return ListPackages(path[3], query);
                 break;
